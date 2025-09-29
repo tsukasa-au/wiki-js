@@ -1,5 +1,6 @@
 const _ = require('lodash')
 const EventEmitter = require('eventemitter2').EventEmitter2
+const jobcontrol = require('../helpers/job-control')
 
 /* global WIKI */
 
@@ -91,6 +92,8 @@ module.exports = {
     if (WIKI.servers.servers.https !== null) {
       await WIKI.servers.listenHTTPS()
     }
+
+    jobcontrol.notifyStarted()
   },
   /**
    * Init Telemetry
@@ -111,6 +114,7 @@ module.exports = {
    * Graceful shutdown
    */
   async shutdown (devMode = false) {
+    jobcontrol.notifyShuttingDown()
     if (WIKI.servers) {
       await WIKI.servers.stopServers()
     }
