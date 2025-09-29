@@ -11,6 +11,7 @@ const _ = require('lodash')
 const crypto = Promise.promisifyAll(require('crypto'))
 const pem2jwk = require('pem-jwk').pem2jwk
 const semver = require('semver')
+const jobcontrol = require('./helpers/job-control')
 
 /* global WIKI */
 
@@ -359,12 +360,22 @@ module.exports = () => {
       WIKI.config.setup = false
 
       WIKI.logger.info('Stopping Setup...')
-      WIKI.server.destroy(() => {
-        WIKI.logger.info('Setup stopped. Starting Wiki.js...')
-        _.delay(() => {
-          WIKI.kernel.bootMaster()
-        }, 1000)
-      })
+      if (jobcontrol.isManaged()) {
+        // When we are being managed by systemd, restart prefer to have systemd
+        // restart us, rather than being unavailable for the time.
+        jobcontrol.notifyShuttingDown()
+        WIKI.server.destroy(() => {
+          WIKI.logger.info('Setup stopped. Shutting down.')
+          process.exit(1)
+        })
+      } else {
+        WIKI.server.destroy(() => {
+          WIKI.logger.info('Setup stopped. Starting Wiki.js...')
+          _.delay(() => {
+            WIKI.kernel.bootMaster()
+          }, 1000)
+        })
+      }
     } catch (err) {
       try {
         await WIKI.models.knex('settings').truncate()
@@ -447,5 +458,6 @@ module.exports = () => {
     WIKI.logger.info(`Browse to http://YOUR-SERVER-IP:${WIKI.config.port}/ to complete setup!`)
     WIKI.logger.info('')
     WIKI.logger.info('🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺')
+    jobcontrol.notifyStarted()
   })
 }
