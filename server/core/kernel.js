@@ -12,6 +12,7 @@ module.exports = {
     WIKI.logger.info('Initializing...')
 
     WIKI.models = require('./db').init()
+    jobcontrol.setJobStatus('Initializing...')
 
     try {
       await WIKI.models.onReady
@@ -55,8 +56,10 @@ module.exports = {
     try {
       if (WIKI.config.setup) {
         WIKI.logger.info('Starting setup wizard...')
+        jobcontrol.setJobStatus('Starting setup wizard...')
         require('../setup')()
       } else {
+        jobcontrol.setJobStatus('Booting master...')
         await this.preBootMaster()
         await require('../master')()
         this.postBootMaster()
@@ -70,6 +73,7 @@ module.exports = {
    * Post-Master Boot Sequence
    */
   async postBootMaster() {
+    jobcontrol.setJobStatus('Loading config from storage...')
     await WIKI.models.analytics.refreshProvidersFromDisk()
     await WIKI.models.authentication.refreshStrategiesFromDisk()
     await WIKI.models.commentProviders.refreshProvidersFromDisk()
@@ -93,6 +97,7 @@ module.exports = {
       await WIKI.servers.listenHTTPS()
     }
 
+    jobcontrol.setJobStatus('Ready to serve requests...')
     jobcontrol.notifyStarted()
   },
   /**
@@ -114,6 +119,7 @@ module.exports = {
    * Graceful shutdown
    */
   async shutdown (devMode = false) {
+    jobcontrol.setJobStatus('Shutting down cleanly...')
     jobcontrol.notifyShuttingDown()
     if (WIKI.servers) {
       await WIKI.servers.stopServers()

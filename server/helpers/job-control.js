@@ -1,6 +1,7 @@
 class Notifier {
   notifyStarted() {}
   notifyShuttingDown() {}
+  setJobStatus(message) {}
   isManaged() { return false }
 }
 
@@ -16,6 +17,9 @@ class SystemdNotifier extends NoopNotifier {
   }
   notifyShuttingDown() {
     this.sd_notify_lite.notifyStopping()
+  }
+  setJobStatus(message) {
+    this.sd_notify_lite.notifyStatus(message)
   }
   isManaged() {
     return this.sd_notify_lite.sd_notify.isSystemdManaged()
@@ -50,6 +54,15 @@ module.exports = {
    */
   notifyShuttingDown() {
     notifier.notifyShuttingDown()
+  },
+
+  /**
+   * Set our status in the service manager.
+   * @param {string} message The plain text-message to show as this job's
+   * current status.
+   */
+  setJobStatus(message) {
+    notifier.setJobStatus(message)
   },
 
   /**
