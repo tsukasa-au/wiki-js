@@ -4,6 +4,7 @@ const https = require('https')
 const { ApolloServer } = require('apollo-server-express')
 const Promise = require('bluebird')
 const _ = require('lodash')
+const jobcontrol = require('../helpers/job-control')
 
 /* global WIKI */
 
@@ -22,6 +23,34 @@ function listenServer(config, server) {
   server.listen(config.port, config.bindIP)
 }
 
+const updateStatus = () => {
+  jobcontrol.setJobStatus(`Serving requests... ${module.exports.connections.size} active requests, ${module.exports.connectionsCompleted} completed requests`)
+}
+
+const ratelimitFunctionCall = (minDelayBetweenCalls, func) => {
+  let nextCallAllowed = -Infinity
+  let callPending = false
+
+  const callFunc = () => {
+    nextCallAllowed = _.now() + minDelayBetweenCalls
+    callPending = false
+    func()
+  }
+
+  return () => {
+    if (callPending) return
+    const now = _.now()
+    if (now >= nextCallAllowed) {
+      callFunc()
+    } else {
+      callPending = true
+      _.delay(callFunc, nextCallAllowed - now)
+    }
+  }
+}
+
+const ratelimitedUpdateStatus = ratelimitFunctionCall(1000, updateStatus)
+
 module.exports = {
   servers: {
     graph: null,
@@ -33,6 +62,7 @@ module.exports = {
     https: false,
   },
   connections: new Map(),
+  connectionsCompleted: 0,
   le: null,
   /**
    * Start HTTP Server
@@ -68,8 +98,11 @@ module.exports = {
       let connKey = `http:${conn.remoteAddress}:${conn.remotePort}:${connCounter}`
       connCounter += 1
       this.connections.set(connKey, conn)
+      ratelimitedUpdateStatus()
       conn.on('close', () => {
         this.connections.delete(connKey)
+        this.connectionsCompleted += 1
+        ratelimitedUpdateStatus()
       })
     })
     if (!WIKI.config.lateBindHTTP) {
@@ -148,8 +181,11 @@ module.exports = {
       let connKey = `https:${conn.remoteAddress}:${conn.remotePort}:${connCounter}`
       connCounter += 1
       this.connections.set(connKey, conn)
+      ratelimitedUpdateStatus()
       conn.on('close', () => {
         this.connections.delete(connKey)
+        this.connectionsCompleted += 1
+        ratelimitedUpdateStatus()
       })
     })
 
