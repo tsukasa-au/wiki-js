@@ -87,6 +87,10 @@ module.exports = {
     WIKI.scheduler.start()
 
     await WIKI.models.subscribeToNotifications()
+    await WIKI.servers.listenHTTP()
+    if (WIKI.servers.servers.https !== null) {
+      await WIKI.servers.listenHTTPS()
+    }
   },
   /**
    * Init Telemetry

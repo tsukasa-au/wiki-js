@@ -7,11 +7,30 @@ const _ = require('lodash')
 
 /* global WIKI */
 
+function listenServer(config, server) {
+  if (typeof config.port === 'string') {
+    if (config.port.startsWith('fd:')) {
+      const fd = parseInt(config.port.slice("fd:".length))
+      server.listen({fd: fd})
+      return
+    } else if (config.port.startsWith('unix:')) {
+      const socketPath = config.port.slice('unix:'.length)
+      server.listen({path: socketPath})
+      return
+    }
+  }
+  server.listen(config.port, config.bindIP)
+}
+
 module.exports = {
   servers: {
     graph: null,
     http: null,
     https: null
+  },
+  listenCalled: {
+    http: false,
+    https: false,
   },
   connections: new Map(),
   le: null,
@@ -23,7 +42,6 @@ module.exports = {
     this.servers.http = http.createServer(WIKI.app)
     this.servers.graph.installSubscriptionHandlers(this.servers.http)
 
-    this.servers.http.listen(WIKI.config.port, WIKI.config.bindIP)
     this.servers.http.on('error', (error) => {
       if (error.syscall !== 'listen') {
         throw error
@@ -45,13 +63,32 @@ module.exports = {
       WIKI.logger.info('HTTP Server: [ RUNNING ]')
     })
 
+    let connCounter = 0;
     this.servers.http.on('connection', conn => {
-      let connKey = `http:${conn.remoteAddress}:${conn.remotePort}`
+      let connKey = `http:${conn.remoteAddress}:${conn.remotePort}:${connCounter}`
+      connCounter += 1
       this.connections.set(connKey, conn)
       conn.on('close', () => {
         this.connections.delete(connKey)
       })
     })
+    if (!WIKI.config.lateBindHTTP) {
+      await this.listenHTTP();
+    }
+  },
+  /**
+   * Start listening for http requests.
+   *
+   * NOTE: This is split from the creation of the server, as we want to wait
+   * for other parts of the system to finishing loading before serving our
+   * first request.
+   */
+  async listenHTTP() {
+    if (this.listenCalled.http) {
+      return
+    }
+    this.listenCalled.http = true
+    listenServer(WIKI.config, this.servers.http)
   },
   /**
    * Start HTTPS Server
@@ -85,7 +122,6 @@ module.exports = {
     this.servers.https = https.createServer(tlsOpts, WIKI.app)
     this.servers.graph.installSubscriptionHandlers(this.servers.https)
 
-    this.servers.https.listen(WIKI.config.ssl.port, WIKI.config.bindIP)
     this.servers.https.on('error', (error) => {
       if (error.syscall !== 'listen') {
         throw error
@@ -107,13 +143,26 @@ module.exports = {
       WIKI.logger.info('HTTPS Server: [ RUNNING ]')
     })
 
+    let connCounter = 0;
     this.servers.https.on('connection', conn => {
-      let connKey = `https:${conn.remoteAddress}:${conn.remotePort}`
+      let connKey = `https:${conn.remoteAddress}:${conn.remotePort}:${connCounter}`
+      connCounter += 1
       this.connections.set(connKey, conn)
       conn.on('close', () => {
         this.connections.delete(connKey)
       })
     })
+
+    if (!WIKI.config.lateBindHTTPS) {
+      await this.listenHTTPS()
+    }
+  },
+  async listenHTTPS() {
+    if (this.listenCalled.https) {
+      return
+    }
+    this.listenCalled.https = true
+    listenServer({port: WIKI.config.ssl.port, bindIP: WIKI.config.bindIP}, this.servers.https)
   },
   /**
    * Start GraphQL Server
@@ -155,10 +204,12 @@ module.exports = {
     if (this.servers.http) {
       await Promise.fromCallback(cb => { this.servers.http.close(cb) })
       this.servers.http = null
+      this.listenCalled.http = false
     }
     if (this.servers.https) {
       await Promise.fromCallback(cb => { this.servers.https.close(cb) })
       this.servers.https = null
+      this.listenCalled.https = false
     }
     this.servers.graph = null
   },
@@ -172,15 +223,19 @@ module.exports = {
         if (this.servers.http) {
           await Promise.fromCallback(cb => { this.servers.http.close(cb) })
           this.servers.http = null
+          this.listenCalled.http = false
         }
-        this.startHTTP()
+        await this.startHTTP()
+        await this.listenHTTP()
         break
       case 'https':
         if (this.servers.https) {
           await Promise.fromCallback(cb => { this.servers.https.close(cb) })
           this.servers.https = null
+          this.listenCalled.https = false
         }
-        this.startHTTPS()
+        await this.startHTTPS()
+        await this.listenHTTPS()
         break
       default:
         throw new Error('Cannot restart server: Invalid designation')
