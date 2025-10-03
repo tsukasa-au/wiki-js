@@ -23,6 +23,8 @@ defaults:
     pool:
       min: 1
     bindIP: 0.0.0.0
+    lateBindHTTP: false
+    lateBindHTTPS: false
     logLevel: info
     logFormat: default
     offline: false
